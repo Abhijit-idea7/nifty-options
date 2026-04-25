@@ -1,0 +1,99 @@
+name: Live Paper Trader (Nifty Straddle)
+
+# -----------------------------------------------------------------------
+# WHAT THIS DOES:
+#   Runs every 5 minutes during NSE market hours (Mon–Fri, 9:15–15:30 IST)
+#   Fetches live Nifty ATM option prices from NSE
+#   Applies ORB/Supertrend signal on straddle premium
+#   Logs paper trades and P&L to this repository
+#
+# HOW TO START:
+#   Go to Actions tab → "Live Paper Trader" → "Run workflow" → Start
+#
+# HOW TO STOP:
+#   Go to Actions tab → "Live Paper Trader" → click the three dots → Disable
+#
+# VIEW RESULTS:
+#   After each run: Actions → latest run → see console log
+#   Trade history : open paper_trade_log.csv in your repo
+#   Summary       : open paper_pnl_summary.txt in your repo
+# -----------------------------------------------------------------------
+
+on:
+  # Every 5 minutes, Mon–Fri, between 03:45–10:00 UTC = 09:15–15:30 IST
+  schedule:
+    - cron: '*/5 3-10 * * 1-5'
+
+  # Manual start / stop from Actions tab
+  workflow_dispatch:
+    inputs:
+      signal_type:
+        description: 'Signal (orb / supertrend / both)'
+        default: 'orb'
+        type: choice
+        options: [orb, supertrend, both]
+      trade_type:
+        description: 'Trade structure'
+        default: 'straddle'
+        type: choice
+        options: [straddle, strangle]
+      sl_pct:
+        description: 'Stop-loss %'
+        default: '50'
+      target_pct:
+        description: 'Target %'
+        default: '30'
+      use_vix:
+        description: 'VIX filter on?'
+        default: 'true'
+        type: choice
+        options: ['true', 'false']
+      vix_max:
+        description: 'Max VIX for entry'
+        default: '20'
+      num_lots:
+        description: 'Lots'
+        default: '1'
+
+jobs:
+  paper-trade:
+    runs-on: ubuntu-latest
+
+    # Give Actions permission to commit state files back to the repo
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytz
+
+      - name: Run paper trader tick
+        env:
+          SIGNAL_TYPE: ${{ github.event.inputs.signal_type || 'orb' }}
+          TRADE_TYPE:  ${{ github.event.inputs.trade_type  || 'straddle' }}
+          SL_PCT:      ${{ github.event.inputs.sl_pct      || '50' }}
+          TARGET_PCT:  ${{ github.event.inputs.target_pct  || '30' }}
+          USE_VIX:     ${{ github.event.inputs.use_vix     || 'true' }}
+          VIX_MAX:     ${{ github.event.inputs.vix_max     || '20' }}
+          NUM_LOTS:    ${{ github.event.inputs.num_lots     || '1' }}
+        run: python paper_trader.py
+
+      # Commit state and logs back to the repo so next tick picks them up
+      - name: Save state to repository
+        run: |
+          git config user.name  "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          git add -f paper_trade_state.json paper_trade_log.csv paper_pnl_summary.txt 2>/dev/null || true
+          git diff --cached --quiet || git commit -m "paper trade tick $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git push
