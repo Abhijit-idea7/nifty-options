@@ -1,12 +1,43 @@
-# Nifty Weekly Options — Straddle/Strangle Backtest
+# Nifty Weekly Options — Straddle/Strangle Strategy
 
 Day-trading strategy that sells ATM Nifty straddles (or strangles), uses
-ORB or Supertrend signals on the combined premium, and applies an India VIX
-filter for risk management.
+ORB or Supertrend signals on the **combined call+put premium**, and applies
+an India VIX filter for risk management.
+
+Two modes:
+- **Backtest** — runs on 30 days of synthetic data (or real CSV data you supply)
+- **Paper Trade** — fetches live NSE prices every 5 min, logs real signals & P&L
 
 ---
 
-## How to run the backtest on GitHub (no coding required)
+## MODE 1 — Paper Trading (recommended first step)
+
+### Start paper trading in 3 clicks
+
+1. Upload this folder to a new GitHub repository (see bottom of this file)
+2. Go to your repo → **Actions tab** → click **"Live Paper Trader (Nifty Straddle)"**
+3. Click **"Run workflow"** → fill settings → click green **"Run workflow"**
+
+That's it. Every 5 minutes during market hours (9:15–15:30 IST, Mon–Fri),
+GitHub will automatically:
+- Fetch live Nifty ATM call + put prices from NSE
+- Apply your signal (ORB or Supertrend) on the straddle premium
+- Enter/exit paper trades based on your rules
+- Save results back to your repository
+
+### View results
+- **Live console log**: Actions tab → click any run → see real-time output
+- **Trade history**: open `paper_trade_log.csv` in your repo (updates after each exit)
+- **P&L summary**: open `paper_pnl_summary.txt`
+
+### Stop paper trading
+Actions tab → "Live Paper Trader" → three-dot menu → **Disable workflow**
+
+---
+
+## MODE 2 — Backtest on historical data
+
+### How to run the backtest on GitHub (no coding required)
 
 ### Step 1 — Upload this folder to a new GitHub repository
 1. Go to [github.com](https://github.com) → **New repository**
