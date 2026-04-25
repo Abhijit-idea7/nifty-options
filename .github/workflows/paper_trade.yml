@@ -1,30 +1,32 @@
-name: Live Paper Trader (Nifty Straddle)
+name: Live Paper Trader (Nifty Mon + Sensex Wed)
 
 # -----------------------------------------------------------------------
-# WHAT THIS DOES:
-#   Runs every 5 minutes during NSE market hours (Mon–Fri, 9:15–15:30 IST)
-#   Fetches live Nifty ATM option prices from NSE
-#   Applies ORB/Supertrend signal on straddle premium
-#   Logs paper trades and P&L to this repository
+# SCHEDULE:
+#   Monday    → fetches live Nifty  ATM prices (NSE), trades 1DTE straddle
+#   Wednesday → fetches live Sensex ATM prices (BSE), trades 1DTE straddle
+#   All other weekdays → runs but skips immediately (no trade)
+#
+# TIMING:
+#   Runs every 5 minutes, 09:15–15:30 IST (03:45–10:00 UTC)
+#   Monday–Friday only
 #
 # HOW TO START:
-#   Go to Actions tab → "Live Paper Trader" → "Run workflow" → Start
+#   Actions tab → "Live Paper Trader" → Run workflow → Start
 #
 # HOW TO STOP:
-#   Go to Actions tab → "Live Paper Trader" → click the three dots → Disable
+#   Actions tab → "Live Paper Trader" → three-dot menu → Disable workflow
 #
 # VIEW RESULTS:
-#   After each run: Actions → latest run → see console log
-#   Trade history : open paper_trade_log.csv in your repo
-#   Summary       : open paper_pnl_summary.txt in your repo
+#   paper_trade_log.csv      — in your repo (updates after each trade exit)
+#   paper_pnl_summary.txt    — running summary (updates every tick)
+#   Actions console          — live output each run
 # -----------------------------------------------------------------------
 
 on:
-  # Every 5 minutes, Mon–Fri, between 03:45–10:00 UTC = 09:15–15:30 IST
   schedule:
+    # Every 5 min, Mon–Fri, 03:45–10:00 UTC  =  09:15–15:30 IST
     - cron: '*/5 3-10 * * 1-5'
 
-  # Manual start / stop from Actions tab
   workflow_dispatch:
     inputs:
       signal_type:
@@ -38,13 +40,16 @@ on:
         type: choice
         options: [straddle, strangle]
       sl_pct:
-        description: 'Stop-loss %'
-        default: '50'
+        description: 'Stop-loss % (80 for 1DTE)'
+        default: '80'
       target_pct:
-        description: 'Target %'
-        default: '30'
+        description: 'Target % (50 for 1DTE)'
+        default: '50'
+      early_exit_time:
+        description: 'Take profit by (14:00 = 2PM; 15:15 = disabled)'
+        default: '14:00'
       use_vix:
-        description: 'VIX filter on?'
+        description: 'VIX filter?'
         default: 'true'
         type: choice
         options: ['true', 'false']
@@ -52,16 +57,15 @@ on:
         description: 'Max VIX for entry'
         default: '20'
       num_lots:
-        description: 'Lots'
+        description: 'Lots per instrument'
         default: '1'
 
 jobs:
   paper-trade:
     runs-on: ubuntu-latest
 
-    # Give Actions permission to commit state files back to the repo
     permissions:
-      contents: write
+      contents: write   # needed to commit state files back to repo
 
     steps:
       - name: Checkout repository
@@ -80,17 +84,17 @@ jobs:
 
       - name: Run paper trader tick
         env:
-          SIGNAL_TYPE: ${{ github.event.inputs.signal_type || 'orb' }}
-          TRADE_TYPE:  ${{ github.event.inputs.trade_type  || 'straddle' }}
-          SL_PCT:      ${{ github.event.inputs.sl_pct      || '50' }}
-          TARGET_PCT:  ${{ github.event.inputs.target_pct  || '30' }}
-          USE_VIX:     ${{ github.event.inputs.use_vix     || 'true' }}
-          VIX_MAX:     ${{ github.event.inputs.vix_max     || '20' }}
-          NUM_LOTS:    ${{ github.event.inputs.num_lots     || '1' }}
+          SIGNAL_TYPE:     ${{ github.event.inputs.signal_type    || 'orb' }}
+          TRADE_TYPE:      ${{ github.event.inputs.trade_type     || 'straddle' }}
+          SL_PCT:          ${{ github.event.inputs.sl_pct         || '80' }}
+          TARGET_PCT:      ${{ github.event.inputs.target_pct     || '50' }}
+          EARLY_EXIT_TIME: ${{ github.event.inputs.early_exit_time || '14:00' }}
+          USE_VIX:         ${{ github.event.inputs.use_vix         || 'true' }}
+          VIX_MAX:         ${{ github.event.inputs.vix_max         || '20' }}
+          NUM_LOTS:        ${{ github.event.inputs.num_lots         || '1' }}
         run: python paper_trader.py
 
-      # Commit state and logs back to the repo so next tick picks them up
-      - name: Save state to repository
+      - name: Save state and results to repository
         run: |
           git config user.name  "GitHub Actions Bot"
           git config user.email "actions@github.com"

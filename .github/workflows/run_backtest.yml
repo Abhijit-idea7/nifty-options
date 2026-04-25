@@ -1,0 +1,124 @@
+name: Run 1DTE Straddle Backtest (Nifty + Sensex)
+
+# -----------------------------------------------------------------------
+# WHAT THIS DOES:
+#   Backtests the 1DTE short straddle strategy on synthetic data:
+#     Nifty  → Mondays    (expires Tuesday)
+#     Sensex → Wednesdays (expires Thursday)
+#
+# HOW TO USE:
+#   Actions tab → "Run 1DTE Straddle Backtest" → Run workflow → fill form
+#
+# DOWNLOAD RESULTS:
+#   Click the finished run → scroll to Artifacts → download ZIP
+#   Contains: backtest_results.png  trade_log.csv  metrics_summary.csv
+# -----------------------------------------------------------------------
+
+on:
+  workflow_dispatch:
+    inputs:
+      signal_type:
+        description: 'Signal method'
+        required: true
+        default: 'orb'
+        type: choice
+        options: [orb, supertrend, both]
+
+      trade_type:
+        description: 'Trade structure'
+        required: true
+        default: 'straddle'
+        type: choice
+        options: [straddle, strangle]
+
+      sl_pct:
+        description: 'Stop-loss % (80 recommended for 1DTE)'
+        required: true
+        default: '80'
+
+      target_pct:
+        description: 'Target % (50 recommended for 1DTE)'
+        required: true
+        default: '50'
+
+      orb_minutes:
+        description: 'ORB window in minutes (10 for 1DTE)'
+        required: true
+        default: '10'
+
+      early_exit_time:
+        description: 'Take profit early by this time if in profit (14:00 = 2PM; 15:15 = disabled)'
+        required: true
+        default: '14:00'
+
+      early_exit_pct:
+        description: 'Min profit % to trigger early exit'
+        required: true
+        default: '25'
+
+      use_vix_filter:
+        description: 'Enable India VIX filter?'
+        required: true
+        default: 'true'
+        type: choice
+        options: ['true', 'false']
+
+      vix_max_entry:
+        description: 'Max VIX for entry (default 20)'
+        required: true
+        default: '20'
+
+      vix_exit_pct:
+        description: 'Exit if VIX rises this % from entry (default 10)'
+        required: true
+        default: '10'
+
+      num_lots:
+        description: 'Lots per instrument'
+        required: true
+        default: '1'
+
+  push:
+    branches: [main, master]
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run backtest (Nifty Mondays + Sensex Wednesdays)
+        env:
+          SIGNAL_TYPE:     ${{ github.event.inputs.signal_type    || 'orb' }}
+          TRADE_TYPE:      ${{ github.event.inputs.trade_type     || 'straddle' }}
+          SL_PCT:          ${{ github.event.inputs.sl_pct         || '80' }}
+          TARGET_PCT:      ${{ github.event.inputs.target_pct     || '50' }}
+          ORB_MINUTES:     ${{ github.event.inputs.orb_minutes    || '10' }}
+          EARLY_EXIT_TIME: ${{ github.event.inputs.early_exit_time || '14:00' }}
+          EARLY_EXIT_PCT:  ${{ github.event.inputs.early_exit_pct  || '25' }}
+          USE_VIX:         ${{ github.event.inputs.use_vix_filter  || 'true' }}
+          VIX_MAX:         ${{ github.event.inputs.vix_max_entry   || '20' }}
+          VIX_EXIT:        ${{ github.event.inputs.vix_exit_pct    || '10' }}
+          NUM_LOTS:        ${{ github.event.inputs.num_lots         || '1' }}
+        run: python run_backtest.py
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: backtest-results
+          path: |
+            backtest_results.png
+            trade_log.csv
+            metrics_summary.csv
+          retention-days: 30
