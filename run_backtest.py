@@ -1,91 +1,85 @@
 """
-Main backtest runner.
+Combined backtest runner — Nifty (Mondays) + Sensex (Wednesdays).
 
-Edit the CONFIG block below to change strategy settings, then run:
-  python run_backtest.py
-
-On GitHub Actions this file is called automatically — outputs are saved
-as downloadable artifacts (backtest_results.png, trade_log.csv).
+Edit the CONFIG block below or set environment variables to tune parameters.
+GitHub Actions sets env vars automatically from the workflow form inputs.
 """
 
 import os
 import pandas as pd
 from config import StrategyConfig
+from instruments import ALL_INSTRUMENTS
 from backtest_engine import run_backtest
-from report import (
-    compute_metrics, print_summary, print_trade_log,
-    plot_results, plot_sample_day,
-)
+from report import compute_metrics, print_summary, print_trade_log, plot_results
 
 # ===========================================================================
-#  STRATEGY CONFIGURATION  — change these to tune the strategy
+#  CONFIGURATION  — edit here or override via env variables
 # ===========================================================================
 cfg = StrategyConfig(
-    # Signal method: "orb" | "supertrend" | "both"
-    signal_type           = os.getenv("SIGNAL_TYPE",  "orb"),
+    # Signal: "orb" | "supertrend" | "both"
+    signal_type                = os.getenv("SIGNAL_TYPE",      "orb"),
 
-    # Trade type: "straddle" (same strike) | "strangle" (OTM legs)
-    trade_type            = os.getenv("TRADE_TYPE",   "straddle"),
+    # Trade structure: "straddle" | "strangle"
+    trade_type                 = os.getenv("TRADE_TYPE",       "straddle"),
 
-    # Nifty lot size (currently 75; update if NSE changes it)
-    lot_size              = int(os.getenv("LOT_SIZE",  "75")),
-    num_lots              = int(os.getenv("NUM_LOTS",   "1")),
+    # Position size (applies to each instrument separately)
+    num_lots                   = int(os.getenv("NUM_LOTS",       "1")),
 
-    # Risk management
-    sl_pct                = float(os.getenv("SL_PCT",      "50")),   # SL at +50% of entry premium
-    target_pct            = float(os.getenv("TARGET_PCT",  "30")),   # Target at -30% of entry premium
+    # Risk — calibrated for 1DTE high-gamma environment
+    sl_pct                     = float(os.getenv("SL_PCT",       "80")),
+    target_pct                 = float(os.getenv("TARGET_PCT",   "50")),
 
-    # ORB window (in minutes from market open)
-    orb_duration_minutes  = int(os.getenv("ORB_MINUTES",  "15")),
+    # ORB: 10 min window for 1DTE
+    orb_duration_minutes       = int(os.getenv("ORB_MINUTES",    "10")),
 
-    # Supertrend parameters
-    supertrend_period     = int(os.getenv("ST_PERIOD",    "7")),
-    supertrend_multiplier = float(os.getenv("ST_MULT",    "3.0")),
+    # Supertrend
+    supertrend_period          = int(os.getenv("ST_PERIOD",      "7")),
+    supertrend_multiplier      = float(os.getenv("ST_MULT",      "3.0")),
 
-    # India VIX filter
-    use_vix_filter        = os.getenv("USE_VIX", "true").lower() == "true",
-    vix_max_entry         = float(os.getenv("VIX_MAX",    "20.0")),
-    vix_exit_rise_pct     = float(os.getenv("VIX_EXIT",   "10.0")),
+    # VIX filter (India VIX used as proxy for both indices)
+    use_vix_filter             = os.getenv("USE_VIX", "true").lower() == "true",
+    vix_max_entry              = float(os.getenv("VIX_MAX",      "20.0")),
+    vix_exit_rise_pct          = float(os.getenv("VIX_EXIT",     "10.0")),
 
-    # Session timing
-    entry_after           = "09:30",
-    square_off            = "15:15",
+    # Early profit exit (lock in gains before final-hour gamma spike)
+    early_exit_time            = os.getenv("EARLY_EXIT_TIME",   "14:00"),
+    early_exit_min_profit_pct  = float(os.getenv("EARLY_EXIT_PCT", "25")),
 
-    # Data: auto-generated if file is missing
-    data_path             = "data/sample_nifty_options_data.csv",
+    # Timing
+    entry_after                = "09:25",
+    square_off                 = "15:15",
+
+    # Data paths (auto-generated if missing)
+    nifty_data_path            = "data/nifty_options_data.csv",
+    sensex_data_path           = "data/sensex_options_data.csv",
 )
 # ===========================================================================
 
 
-def save_trade_log(trades, path: str = "trade_log.csv") -> None:
+def save_trade_log(trades, path="trade_log.csv"):
     if not trades:
-        print("No trades — trade_log.csv not created.")
         return
-    rows = []
-    for t in trades:
-        rows.append({
-            "entry_time":      t.entry_time,
-            "exit_time":       t.exit_time,
-            "date":            t.entry_date,
-            "strike":          t.strike,
-            "trade_type":      t.trade_type,
-            "entry_call":      t.entry_call,
-            "entry_put":       t.entry_put,
-            "entry_straddle":  t.entry_straddle,
-            "exit_call":       t.exit_call,
-            "exit_put":        t.exit_put,
-            "exit_straddle":   t.exit_straddle,
-            "pnl_per_lot":     round(t.pnl_per_lot, 2),
-            "total_pnl":       round(t.total_pnl, 2),
-            "exit_reason":     t.exit_reason,
-            "entry_vix":       t.entry_vix,
-            "lots":            t.lots,
-        })
+    rows = [{
+        "entry_time":      t.entry_time,
+        "exit_time":       t.exit_time,
+        "date":            t.entry_date,
+        "symbol":          t.symbol,
+        "strike":          t.strike,
+        "trade_type":      t.trade_type,
+        "entry_straddle":  t.entry_straddle,
+        "exit_straddle":   t.exit_straddle,
+        "pnl_per_lot":     round(t.pnl_per_lot, 2),
+        "total_pnl":       round(t.total_pnl, 2),
+        "exit_reason":     t.exit_reason,
+        "entry_vix":       t.entry_vix,
+        "lots":            t.lots,
+        "lot_size":        t.lot_size,
+    } for t in trades]
     pd.DataFrame(rows).to_csv(path, index=False)
-    print(f"Trade log saved → {path}")
+    print(f"Trade log saved  → {path}")
 
 
-def save_metrics_csv(metrics: dict, path: str = "metrics_summary.csv") -> None:
+def save_metrics(metrics, path="metrics_summary.csv"):
     rows = [(k, v) for k, v in metrics.items() if k != "exit_reasons"]
     pd.DataFrame(rows, columns=["metric", "value"]).to_csv(path, index=False)
     print(f"Metrics saved    → {path}")
@@ -93,18 +87,20 @@ def save_metrics_csv(metrics: dict, path: str = "metrics_summary.csv") -> None:
 
 if __name__ == "__main__":
     print("\n" + "=" * 60)
-    print(f"  Nifty {cfg.trade_type.upper()} Backtest")
-    print(f"  Signal: {cfg.signal_type.upper()}  |  VIX filter: {'ON' if cfg.use_vix_filter else 'OFF'}")
-    print(f"  SL: {cfg.sl_pct}%  Target: {cfg.target_pct}%  Lots: {cfg.num_lots}")
+    print("  1DTE Straddle Strategy Backtest")
+    print("  Nifty (Mondays) + Sensex (Wednesdays)")
+    print(f"  Signal: {cfg.signal_type.upper()}  |  "
+          f"SL: {cfg.sl_pct}%  Target: {cfg.target_pct}%")
+    print(f"  VIX filter: {'ON' if cfg.use_vix_filter else 'OFF'}  |  "
+          f"Early exit: {cfg.early_exit_time} if >{cfg.early_exit_min_profit_pct}%")
     print("=" * 60 + "\n")
 
-    results = run_backtest(cfg)
+    results = run_backtest(cfg, instruments=ALL_INSTRUMENTS)
     metrics = compute_metrics(results["trades"], results["daily_pnl"])
 
-    print_summary(metrics)
+    print_summary(metrics, per_instrument=results.get("per_instrument"))
     print_trade_log(results["trades"])
 
-    # Save artefacts (picked up by GitHub Actions as downloadable files)
     save_trade_log(results["trades"])
-    save_metrics_csv(metrics)
+    save_metrics(metrics)
     plot_results(results, save_path="backtest_results.png")

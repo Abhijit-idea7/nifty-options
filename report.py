@@ -69,9 +69,34 @@ def compute_metrics(trades: list[Trade], daily_pnl: pd.Series) -> dict:
 # Console output
 # ---------------------------------------------------------------------------
 
-def print_summary(metrics: dict) -> None:
+def print_instrument_breakdown(per_instrument: dict) -> None:
+    """Print a side-by-side P&L comparison: Nifty (Mon) vs Sensex (Wed)."""
+    print("\n  Per-Instrument Breakdown")
+    print("  " + "-" * 51)
+    rows = []
+    for symbol, res in per_instrument.items():
+        trades = res["trades"]
+        if not trades:
+            continue
+        pnls   = [t.total_pnl for t in trades]
+        wins   = sum(1 for p in pnls if p > 0)
+        inst   = res["instrument"]
+        rows.append([
+            f"{symbol} ({inst.trade_day_name}s)",
+            len(trades),
+            f"{wins/len(trades)*100:.0f}%",
+            f"₹{sum(pnls):+,.0f}",
+            f"₹{sum(pnls)/len(pnls):+,.0f}",
+        ])
+    print(tabulate(rows,
+                   headers=["Instrument", "Trades", "Win%", "Total P&L", "Avg/Trade"],
+                   tablefmt="simple"))
+    print()
+
+
+def print_summary(metrics: dict, per_instrument: dict = None) -> None:
     print("\n" + "=" * 55)
-    print("  BACKTEST SUMMARY")
+    print("  BACKTEST SUMMARY  (Nifty Mondays + Sensex Wednesdays)")
     print("=" * 55)
 
     rows = [
@@ -90,10 +115,13 @@ def print_summary(metrics: dict) -> None:
     ]
     print(tabulate(rows, tablefmt="simple"))
 
+    if per_instrument:
+        print_instrument_breakdown(per_instrument)
+
     print("\nExit reason breakdown:")
     for reason, count in sorted(metrics["exit_reasons"].items(),
                                  key=lambda x: -x[1]):
-        print(f"  {reason:<20} {count:>4} trades")
+        print(f"  {reason:<22} {count:>4} trades")
     print()
 
 

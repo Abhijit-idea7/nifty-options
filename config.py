@@ -1,46 +1,55 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 
 @dataclass
 class StrategyConfig:
-    # --- Instrument ---
-    symbol: str = "NIFTY"
-    lot_size: int = 75          # Current Nifty lot size; update if changed by NSE
-    num_lots: int = 1
-    strike_step: int = 50       # Nifty strikes are multiples of 50
+    """
+    Strategy parameters — identical logic applied to both Nifty and Sensex.
+    Instrument-specific settings (lot size, strike step, expiry day) live
+    in InstrumentConfig inside instruments.py.
+    """
 
     # --- Trade Structure ---
     trade_type: Literal["straddle", "strangle"] = "straddle"
-    strangle_width: int = 100   # Points OTM for strangle legs (each side)
+    strangle_width_pct: float = 0.5   # OTM distance as % of spot (0.5% each side)
+                                      # avoids hardcoding points that differ across indices
 
     # --- Signal ---
-    # "orb"        -> use Opening Range Breakout only
-    # "supertrend" -> use Supertrend only
-    # "both"       -> require both signals to agree before entry
+    # "orb"        -> Opening Range Breakout on straddle premium
+    # "supertrend" -> Supertrend on straddle premium
+    # "both"       -> require BOTH signals to agree (fewer but higher-quality entries)
     signal_type: Literal["orb", "supertrend", "both"] = "orb"
 
     # --- ORB ---
-    orb_duration_minutes: int = 15   # Length of opening range period
+    # Shorter window for 1DTE: less time to establish range, faster signals
+    orb_duration_minutes: int = 10    # 10 min for 1DTE (use 15 for all-day trading)
 
     # --- Supertrend ---
     supertrend_period: int = 7
     supertrend_multiplier: float = 3.0
 
-    # --- VIX Filter ---
+    # --- VIX Filter (uses India VIX as proxy for both Nifty and Sensex) ---
     use_vix_filter: bool = True
-    vix_max_entry: float = 20.0       # Reject entry if VIX > this value
-    vix_exit_rise_pct: float = 10.0   # Exit if VIX rises more than this % from entry
+    vix_max_entry: float = 20.0       # skip entry if VIX > this
+    vix_exit_rise_pct: float = 10.0   # exit if VIX rises more than this % from entry
 
-    # --- Risk Management ---
-    sl_pct: float = 50.0        # Stop-loss: exit if straddle rises 50 % from entry
-    target_pct: float = 30.0    # Target  : exit if straddle falls 30 % from entry
+    # --- Risk Management (calibrated for 1DTE high-gamma environment) ---
+    sl_pct: float = 80.0              # wider SL needed: 1DTE gamma moves premium fast
+    target_pct: float = 50.0          # achievable: rapid theta decay on 1DTE
+
+    # --- Early Exit (avoid final-hour gamma spike on 1DTE eve) ---
+    # Take profits by this time if already above early_exit_min_profit_pct
+    # Set early_exit_time = square_off to disable
+    early_exit_time: str = "14:00"
+    early_exit_min_profit_pct: float = 25.0
 
     # --- Session Timing ---
     session_start: str = "09:15"
-    entry_after: str = "09:30"   # Earliest entry (after ORB period stabilises)
-    square_off: str = "15:15"    # Hard EOD square-off
+    entry_after: str = "09:25"        # 10-min ORB → allow entry at 9:25
+    square_off: str = "15:15"         # hard EOD exit
     session_end: str = "15:30"
 
-    # --- Data ---
-    data_path: str = "data/sample_nifty_options_data.csv"
+    # --- Data paths (auto-generated if missing) ---
+    nifty_data_path: str  = "data/nifty_options_data.csv"
+    sensex_data_path: str = "data/sensex_options_data.csv"
