@@ -10,6 +10,9 @@ class StrategyConfig:
     in InstrumentConfig inside instruments.py.
     """
 
+    # --- Position Size ---
+    num_lots: int = 1                  # number of lots per instrument per trade
+
     # --- Trade Structure ---
     trade_type: Literal["straddle", "strangle"] = "straddle"
     strangle_width_pct: float = 0.5   # OTM distance as % of spot (0.5% each side)
